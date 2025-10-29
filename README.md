@@ -8,6 +8,11 @@ This container is a **standalone** version of the [Silicon Labs multiprotocol ad
 ![](https://img.shields.io/docker/pulls/b2un0/silabs-multipan-docker.svg)
 ![](https://img.shields.io/docker/image-size/b2un0/silabs-multipan-docker.svg)
 
+> [!WARNING]
+> This project is deprecated due to discontinued multiprotocol support for Home Assistant SkyConnect (ZBT-1).
+> 
+> See https://www.home-assistant.io/connectzbt1
+
 # ❗ Attention ❗
 
 I do not provide any support for the software running in this container.
