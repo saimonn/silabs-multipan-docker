@@ -1,8 +1,9 @@
 ARG BASE_VERSION
 ARG TARGETARCH
 
-FROM homeassistant/${TARGETARCH}-addon-silabs-multiprotocol:${BASE_VERSION} AS base-amd64
+FROM homeassistant/amd64-addon-silabs-multiprotocol:${BASE_VERSION} AS base-amd64
 FROM homeassistant/aarch64-addon-silabs-multiprotocol:${BASE_VERSION} AS base-arm64
+FROM homeassistant/armv7-addon-silabs-multiprotocol:${BASE_VERSION} AS base-arm
 FROM base-${TARGETARCH} AS final
 #FROM homeassistant/${TARGETARCH}-addon-silabs-multiprotocol:${BASE_VERSION}
 
