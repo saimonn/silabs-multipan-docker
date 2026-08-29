@@ -5,8 +5,8 @@ on:
     inputs:
       base_version:
         description: 'Silabs multiprotocol base version (e.g. 2.4.5)'
-        required: true
-        default: 'latest'
+        required: false
+        default: '2.4.5'
   push:
     branches:
       - main
@@ -25,14 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve base version
-        id: base_version
+      - name: Set base version
         run: |
-          BASE=${{ github.event.inputs.base_version || 'latest' }}
-          if [ "$BASE" = "latest" ]; then
-            BASE=$(docker inspect homeassistant/aarch64-addon-silabs-multiprotocol:latest \
-              --format '{{ index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || echo "latest")
-          fi
+          BASE=${{ github.event.inputs.base_version || '2.4.5' }}
           echo "BASE_VERSION=$BASE" >> $GITHUB_ENV
 
       - name: Login to ghcr.io
