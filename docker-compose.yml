@@ -2,7 +2,7 @@ version: "3.9"
 services:
   multipan:
     container_name: multipan
-    image: b2un0/silabs-multipan-docker:latest
+    image: ghcr.io/saimonn/silabs-multipan-docker:latest
     restart: unless-stopped
     privileged: true # don't change this !
     network_mode: host # don't change this !

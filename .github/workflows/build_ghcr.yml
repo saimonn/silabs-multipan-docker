@@ -1,0 +1,70 @@
+name: 'build & push to ghcr'
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Silabs multiprotocol base version (e.g. 2.4.5)'
+        required: true
+        default: 'latest'
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ghcr-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve base version
+        id: base_version
+        run: |
+          BASE=${{ github.event.inputs.base_version || 'latest' }}
+          if [ "$BASE" = "latest" ]; then
+            BASE=$(docker inspect homeassistant/aarch64-addon-silabs-multiprotocol:latest \
+              --format '{{ index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || echo "latest")
+          fi
+          echo "BASE_VERSION=$BASE" >> $GITHUB_ENV
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ env.BASE_VERSION }}
+            type=raw,value=latest
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          build-args: |
+            BASE_VERSION=${{ env.BASE_VERSION }}
