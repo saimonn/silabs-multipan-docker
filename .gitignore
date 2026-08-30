@@ -1,2 +1,4 @@
 .idea
 .env
+# optional offline SDK cache dropped into this directory (never commit these)
+build-cache/*.zip

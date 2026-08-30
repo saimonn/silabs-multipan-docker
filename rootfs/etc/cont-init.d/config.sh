@@ -9,10 +9,6 @@ if [[ -z "${DEVICE}" ]]; then
     exit 1
 fi
 
-if [ $NETWORK_DEVICES -eq 1 ]; then
-    export DEVICE="/tmp/ttyCPC"
-fi
-
 if [[ -z "${BAUDRATE}" ]]; then
     log 'error' "No serial port baudrate set!"
     exit 1

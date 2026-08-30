@@ -60,7 +60,7 @@ fi
 
 mkdir -p /data/thread && ln -sft /var/lib /data/thread || echo "Could not create directory /var/lib/thread to store Thread data." #TODO sys exit
 
-if [ $OTB_FIREWALL -eq 1 ]; then
+if [ $OTBR_FIREWALL -eq 1 ]; then
     log 'info' "Setup OTBR firewall..."
     ipset create -exist otbr-ingress-deny-src hash:net family inet6
     ipset create -exist otbr-ingress-deny-src-swap hash:net family inet6

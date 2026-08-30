@@ -1,28 +1,28 @@
 version: "3.9"
 services:
   multipan:
+    image: silabs-multipan-docker:oci-from-scratch
+    build: .
     container_name: multipan
-    image: ghcr.io/saimonn/silabs-multipan-docker:latest
     restart: unless-stopped
-    privileged: true # don't change this !
-    network_mode: host # don't change this !
+    privileged: true # required: access to the USB dongle + ip6tables/ipset
+    network_mode: host # required: otbr firewall + mDNS
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN
     volumes:
-      - ~/multipan/:/data
+      - ./multipan/:/data # keeps your Zigbee + Thread network state
     environment:
-      DEVICE: "/dev/ttyUSB0" # only change if your have multiple devices
+      # Dongle connection
+      DEVICE: "/dev/ttyUSB0" # your multiprotocol dongle
       BAUDRATE: "460800"
-      FLOW_CONTROL: "true" # change to false if you not using SkyConnect
+      FLOW_CONTROL: "true" # SkyConnect/500-series dongles in the USB form
+      CPCP_DISABLE_ENCRYPTION: "true" # keep it: we speak CPC protocol v5
 
-      BACKBONE_IF: "eth0" # change this to your network interface
-      OTBR_REST_LISTEN_PORT: "8081" # use this within the HomeAssistant integration
-      OTBR_WEB_PORT: "8086"
+      # Thread / OpenThread Border Router
+      BACKBONE_IF: "eth0" # your WAN/LAN interface used by the Border Router
+      OTBR_REST_LISTEN_PORT: "8081" # Home Assistant OTBR integration URL
+      OTBR_WEB_PORT: "8086" # Web GUI (create/reset the Thread network here)
 
-      # ZIGBEED environment variables
-      EZSP_LISTEN_PORT: "20108" #
-
-      # UNIVERSAL FLASHER variables
-      AUTOFLASH_FIRMWARE: 0 # change to 1 for firmware update
-      FIRMWARE: "NabuCasa_SkyConnect_RCP_v4.3.1_rcp-uart-hw-802154_460800.gbl"
+      # Zigbee daemon
+      EZSP_LISTEN_PORT: "9999" # Home Assistant ZHA radio URL port
