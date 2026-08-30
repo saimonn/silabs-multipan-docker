@@ -338,6 +338,6 @@ VOLUME ["/data"]
 # 8086 : OpenThread Web GUI
 EXPOSE 9999 8081 8086
 
-HEALTHCHECK --interval=10s --start-period=120s CMD [ "$(s6-svstat -u /run/service/zigbeed)" = "true" ]
+HEALTHCHECK --interval=10s --start-period=120s CMD [ "$(/command/s6-svstat -u /run/service/zigbeed)" = "true" ]
 
 ENTRYPOINT ["/init"]
