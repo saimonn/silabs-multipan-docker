@@ -106,6 +106,11 @@ RUN set -eux \
     && rm -f /tmp/build-cache/gecko-sdk.zip
 
 RUN set -eux \
+    && if [ "$(uname -m)" != "x86_64" ]; then \
+        # the SLC zip ships an x86-64-only native eclipse launcher; drop it on
+        # other platforms so SLC falls back to pure-java mode
+        rm -f /usr/src/slc_cli/slc_cli/bin/slc-cli/slc-cli; \
+    fi \
     && cd /usr/src/gecko_sdk \
     && patch -p1 -f < /usr/src/patches/gecko-sdk/0001-Use-TCP-socket-instead-of-serial-port-SDK.patch \
     && case "$(uname -m)" in \
