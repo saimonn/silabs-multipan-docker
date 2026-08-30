@@ -5,11 +5,11 @@
 # No dependency on the deprecated Home Assistant "silabs-multiprotocol" addon
 # base image. Everything is compiled from source in this Dockerfile.
 #
-# The image is built NATIVELY for its target architecture:
+# The image is built NATIVELY for each target architecture:
 #   * x86_64  -> podman build -t multipan .
-#   * aarch64 -> build on an aarch64 host/router, or
-#                `podman build --platform linux/arm64` with qemu-user-static
-#                (binfmt) registered on the build host (needs root).
+#   * aarch64 -> built in the GitHub Actions workflow (buildx + QEMU, the
+#                heavy stages run natively per-architecture; only the SLC
+#                project generation runs once on the amd64 build platform).
 #
 # Software (a fully compatible set for a CPC protocol v5 multiprotocol dongle):
 #   * cpcd        v4.9.1        (CPC protocol 6, built with encryption disabled)
@@ -48,16 +48,16 @@ RUN git clone --depth 1 --branch "${CPCD_VERSION}" \
     && cmake --install /usr/src/cpc-daemon/build
 
 # -----------------------------------------------------------------------------
-# Stage 2: zigbeed - Silicon Labs Zigbee host daemon
+# Stage 2a: zigbeed project generation (SLC, build platform only)
 # -----------------------------------------------------------------------------
-FROM ${BUILD_FROM} AS zigbeed-builder
+FROM --platform=$BUILDPLATFORM ${BUILD_FROM} AS zigbeed-slc
 
 ARG GECKO_SDK_VERSION
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
         ca-certificates \
+        patch \
         python3 \
         python3-jinja2 \
         python3-pip \
@@ -72,6 +72,7 @@ RUN set -eux \
     && case "$(uname -m)" in \
         x86_64)  JRE_ASSET="OpenJDK21U-jre_x64_linux_hotspot_21.0.9_10.tar.gz" ;; \
         aarch64) JRE_ASSET="OpenJDK21U-jre_aarch64_linux_hotspot_21.0.9_10.tar.gz" ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
     esac \
     && wget -q -O /tmp/jre21.tar.gz \
         "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.9%2B10/${JRE_ASSET}" \
@@ -79,7 +80,12 @@ RUN set -eux \
     && tar -xzf /tmp/jre21.tar.gz -C /opt/jdk21 --strip-components=1 \
     && rm -f /tmp/jre21.tar.gz
 
-# SLC CLI (Silicon Labs Configurator) generates the zigbeed build project.
+# SLC CLI (Silicon Labs Configurator) generates the zigbeed build projects.
+# The SLC Linux distribution ships an x86-64-only native launcher, so this
+# stage must run on the BUILD platform (amd64 on GitHub Actions). Project
+# generation is pure templating + file copying: the two outputs below are
+# architecture-neutral except for the prebuilt Zigbee stack library directory
+# they reference (protocol/zigbee/build/gcc/{x86-64,arm64v8}).
 RUN wget -q -O /tmp/slc_cli_linux.zip \
         "https://www.silabs.com/documents/login/software/slc_cli_linux.zip" \
     && unzip -q /tmp/slc_cli_linux.zip -d /usr/src/slc_cli \
@@ -92,11 +98,6 @@ ENV PATH="/opt/jdk21/bin:/usr/src/slc_cli/slc_cli:${PATH}"
 COPY build-cache/ /tmp/build-cache/
 COPY patches/ /usr/src/patches/
 
-# CPC library + headers zigbeed links against (from stage 1); ldconfig makes
-# /usr/local/lib visible to both the linker and the runtime loader.
-COPY --from=cpcd-builder /usr/local/ /usr/local/
-RUN ldconfig
-
 RUN set -eux \
     && [ -s /tmp/build-cache/gecko-sdk.zip ] \
         || wget -q -O /tmp/build-cache/gecko-sdk.zip \
@@ -105,44 +106,64 @@ RUN set -eux \
     && unzip -q /tmp/build-cache/gecko-sdk.zip -d /usr/src/gecko_sdk \
     && rm -f /tmp/build-cache/gecko-sdk.zip
 
+# Patch the SDK and generate an x86-64 and an arm64 zigbeed project. The
+# generated zigbeed.project.mak bakes in the SDK path used here, so the later
+# build stage must mount the SDK at /usr/src/gecko_sdk as well.
 RUN set -eux \
-    && if [ "$(uname -m)" != "x86_64" ]; then \
-        # the SLC zip ships an x86-64-only native eclipse launcher; drop it on
-        # other platforms so SLC falls back to pure-java mode
-        rm -f /usr/src/slc_cli/slc_cli/bin/slc-cli/slc-cli; \
-    fi \
     && cd /usr/src/gecko_sdk \
     && patch -p1 -f < /usr/src/patches/gecko-sdk/0001-Use-TCP-socket-instead-of-serial-port-SDK.patch \
-    && case "$(uname -m)" in \
-        x86_64)  SLC_CONFIG="zigbee_x86_64" ;; \
-        aarch64) SLC_CONFIG="zigbee_arm64" ;; \
-        *)       echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
-    esac \
-    && export SLC_CONFIG \
     && slc signature trust --sdk=/usr/src/gecko_sdk \
-    && slc generate --sdk=/usr/src/gecko_sdk \
-        --with="${SLC_CONFIG}" \
-        --project-file=/usr/src/gecko_sdk/protocol/zigbee/app/zigbeed/zigbeed.slcp \
-        --export-destination=/usr/src/zigbeed \
-        --copy-proj-sources \
-    && cd /usr/src/zigbeed \
-    && patch -p1 -f < /usr/src/patches/zigbeed-app/0001-Use-TCP-socket-instead-of-serial-port-main-app.patch \
-    && cat >> zigbeed.project.mak <<'EOF'
+    && for SL_CONFIG in zigbee_x86_64 zigbee_arm64; do \
+        case "${SL_CONFIG}" in \
+            zigbee_x86_64) SL_DIR="x86_64" ;; \
+            zigbee_arm64)  SL_DIR="arm64" ;; \
+        esac; \
+        slc generate --sdk=/usr/src/gecko_sdk \
+            --with="${SL_CONFIG}" \
+            --project-file=/usr/src/gecko_sdk/protocol/zigbee/app/zigbeed/zigbeed.slcp \
+            --export-destination=/usr/src/zigbeed/${SL_DIR} \
+            --copy-proj-sources; \
+        cd /usr/src/zigbeed/${SL_DIR}; \
+        patch -p1 -f < /usr/src/patches/zigbeed-app/0001-Use-TCP-socket-instead-of-serial-port-main-app.patch; \
+        printf '\n# Extra host-Linux support the SLC generated project does not include by\n# default (zigbeed links against libcpc, shipped by the cpcd-builder stage).\n#  * loglevel must be dynamic: app.c calls otLoggingSetLevel()\n#  * the r23 support library is missing the dynamic-commissioning stubs\nC_DEFS += -DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1\nC_SOURCE_FILES += $(SDK_PATH)/protocol/zigbee/stack/stubs/sl_zigbee_dynamic_commissioning_stubs.c\n' \
+            >> zigbeed.project.mak; \
+        cd /usr/src/gecko_sdk; \
+    done
 
-# Extra host-Linux support the SLC generated project does not include by
-# default (zigbeed links against libcpc, shipped by the cpcd-builder stage).
-#  * loglevel must be dynamic: app.c calls otLoggingSetLevel()
-#  * the r23 support library is missing the dynamic-commissioning stubs
-C_DEFS += -DOPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE=1
-C_SOURCE_FILES += $(SDK_PATH)/protocol/zigbee/stack/stubs/sl_zigbee_dynamic_commissioning_stubs.c
-EOF
+# -----------------------------------------------------------------------------
+# Stage 2b: zigbeed native compile (per target architecture)
+# -----------------------------------------------------------------------------
+FROM --platform=$TARGETPLATFORM ${BUILD_FROM} AS zigbeed-builder
 
-RUN cd /usr/src/zigbeed \
+ARG TARGETARCH
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPC library + headers zigbeed links against (from stage 1); the patched Gecko
+# SDK and the generated projects (from stage 2a, whose project.mak references
+# the SDK at /usr/src/gecko_sdk). ldconfig makes /usr/local/lib visible to both
+# the linker and the runtime loader.
+COPY --from=cpcd-builder /usr/local/ /usr/local/
+COPY --from=zigbeed-slc /usr/src/gecko_sdk /usr/src/gecko_sdk
+COPY --from=zigbeed-slc /usr/src/zigbeed /usr/src/zigbeed
+RUN ldconfig
+
+RUN set -eux \
+    && case "${TARGETARCH}" in \
+        amd64) SL_DIR="x86_64" ;; \
+        arm64) SL_DIR="arm64" ;; \
+        *)     echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && cd /usr/src/zigbeed/${SL_DIR} \
     && make -f zigbeed.Makefile \
         C_FLAGS="-std=gnu99 -DEMBER_MULTICAST_TABLE_SIZE=16" \
         LD_FLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib -lcpc -lpthread -lrt -lm" \
         debug \
-    && install -D -m 0755 /usr/src/zigbeed/build/debug/zigbeed /usr/local/bin/zigbeed
+    && install -D -m 0755 /usr/src/zigbeed/${SL_DIR}/build/debug/zigbeed /usr/local/bin/zigbeed
 
 # -----------------------------------------------------------------------------
 # Stage 3: ot-br - OpenThread Border Router
