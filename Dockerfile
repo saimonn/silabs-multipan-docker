@@ -265,6 +265,8 @@ RUN apt-get update \
         libmbedtls14 \
         libncurses6 \
         libnetfilter-queue1 \
+        libprotobuf-lite32 \
+        libprotobuf32 \
         libreadline8 \
         netcat-openbsd \
         procps \
@@ -304,6 +306,8 @@ COPY --from=zigbeed-builder /usr/local/bin/zigbeed /usr/local/bin/
 COPY --from=otbr-builder /usr/sbin/otbr-agent /usr/sbin/otbr-agent
 COPY --from=otbr-builder /usr/sbin/otbr-web /usr/sbin/otbr-web
 COPY --from=otbr-builder /usr/sbin/mdnsd /usr/sbin/mdnsd
+COPY --from=otbr-builder /usr/lib/libdns_sd.so /usr/lib/libdns_sd.so
+COPY --from=otbr-builder /usr/lib/libdns_sd.so.1 /usr/lib/libdns_sd.so.1
 COPY --from=otbr-builder /usr/share/otbr-web/ /usr/share/otbr-web/
 
 COPY rootfs/ /
